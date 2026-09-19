@@ -1,0 +1,11 @@
+{
+  "name": "eggox",
+  "version": "0.1.0",
+  "description": "Your Eggox games as files: pull, check, push, publish, and an MCP server for AI agents.",
+  "type": "module",
+  "bin": { "eggox": "bin/eggox.mjs" },
+  "files": ["bin"],
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "homepage": "https://eggox.net/developers"
+}
