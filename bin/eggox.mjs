@@ -14,7 +14,7 @@ import crypto from "node:crypto"
 import readline from "node:readline"
 import { spawn } from "node:child_process"
 
-const VERSION = "0.1.0"
+const VERSION = "0.1.1"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -367,15 +367,25 @@ async function push(flags, args) {
   console.log(`Pushed. The game is the draft now; open it in Eggox to play it, or eggox publish.`)
 }
 
+// What a push (or a check) did, as the creator thinks of it: the files
+// that differ, then the rooms where things moved. Rooms nothing
+// happened in are one line together.
 function report(data, verb) {
-  for (const room of data.rooms || []) {
+  const changes = data.changes || []
+  for (const c of changes) console.log(`${c.kind === "added" ? "+" : c.kind === "removed" ? "-" : "~"} ${c.path}`)
+  const rooms = data.rooms || []
+  const moved = rooms.filter((r) => r.created || r.placed || r.removed)
+  for (const room of moved) {
     const parts = []
-    if (room.created) parts.push("new")
+    if (room.created) parts.push("new room")
     if (room.placed) parts.push(`${room.placed} placed`)
     if (room.removed) parts.push(`${room.removed} picked up`)
-    if (room.kept) parts.push(`${room.kept} as they were`)
-    console.log(`${room.name}: ${parts.join(", ") || "unchanged"}`)
+    console.log(`${room.name}: ${parts.join(", ")}`)
   }
+  const still = rooms.length - moved.length
+  const things = rooms.reduce((n, r) => n + (r.kept || 0), 0)
+  if (changes.length === 0 && moved.length === 0) console.log(`Nothing ${verb === "would be" ? "would change" : "changed"}: ${rooms.length} room${rooms.length === 1 ? "" : "s"}, ${things} things as they were.`)
+  else if (still > 0) console.log(`${still} other room${still === 1 ? "" : "s"} as they were.`)
   for (const w of data.warnings || []) console.log(`note: ${w}`)
   if (verb === "would be") console.log("Everything compiles. Nothing was written.")
 }
