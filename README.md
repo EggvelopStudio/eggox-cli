@@ -3,7 +3,7 @@
 Your Eggox games as files on your own machine. Log in once, pull a game,
 work on the files with any editor or AI agent, check, push, publish.
 
-    npm install -g ./cli        # from this repo, until it is on npm
+    curl -fsSL https://eggox.net/cli/install.sh | sh    # needs node 18+
     eggox login
     eggox games
     eggox pull "Ninja Skybound"

@@ -35,6 +35,7 @@ const HELP = `eggox ${VERSION}: your Eggox games as files, from your own machine
   eggox stock take <thing> [dir] a thing back to the bag (none may stand)
   eggox docs [api|project]       the reference, as markdown
   eggox mcp                      serve these to an AI agent (MCP over stdio)
+  eggox update                   fetch the newest eggox from the server
 
   --server URL   which Eggox (default: the one you logged in to last)
   --json         machine-readable output
@@ -75,9 +76,20 @@ function writeCredentials(creds) {
   fs.writeFileSync(CREDENTIALS, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600 })
 }
 
+// The installer (curl .../cli/install.sh | sh) from a server other than
+// eggox.net leaves a server.json beside this file, so an install from
+// staging talks to staging without --server.
+function installedServer() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(path.dirname(process.argv[1]), "server.json"), "utf8")).default || null
+  } catch {
+    return null
+  }
+}
+
 function serverFor(flags, dir) {
   const state = dir ? readState(dir) : null
-  return normalizeServer(flags.server || process.env.EGGOX_SERVER || state?.server || readCredentials().default || DEFAULT_SERVER)
+  return normalizeServer(flags.server || process.env.EGGOX_SERVER || state?.server || readCredentials().default || installedServer() || DEFAULT_SERVER)
 }
 
 function normalizeServer(url) {
@@ -215,8 +227,18 @@ function slug(name) {
 
 // ── Commands ──────────────────────────────────────────────────────
 
+async function update(flags) {
+  const server = serverFor(flags)
+  const res = await fetch(`${server}/cli/eggox.mjs`)
+  if (!res.ok) throw new Fail(`${server} does not hand out the CLI (${res.status})`)
+  const text = await res.text()
+  const version = /const VERSION = "([^"]+)"/.exec(text)?.[1] || "?"
+  fs.writeFileSync(process.argv[1], text)
+  console.log(version === VERSION ? `eggox ${VERSION} is current.` : `eggox ${VERSION} → ${version}, from ${server}.`)
+}
+
 async function login(flags) {
-  const server = normalizeServer(flags.server || process.env.EGGOX_SERVER || DEFAULT_SERVER)
+  const server = normalizeServer(flags.server || process.env.EGGOX_SERVER || installedServer() || DEFAULT_SERVER)
   const port = 20000 + Math.floor(Math.random() * 20000)
   const redirect = `http://127.0.0.1:${port}/callback`
   const reg = await fetch(`${server}/oauth/register`, {
@@ -517,6 +539,7 @@ const run = {
   stock: () => stock(flags, args),
   docs: () => docs(flags, args),
   mcp: () => mcp(flags),
+  update: () => update(flags),
 }[command]
 
 if (!command || flags.help || !run) {
