@@ -14,7 +14,7 @@ import crypto from "node:crypto"
 import readline from "node:readline"
 import { spawn } from "node:child_process"
 
-const VERSION = "0.1.1"
+const VERSION = "0.1.2"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -261,8 +261,9 @@ async function login(flags) {
       if (u.pathname !== "/callback") return res.writeHead(404).end()
       const err = u.searchParams.get("error")
       const ok = !err && u.searchParams.get("state") === state && u.searchParams.get("code")
-      res.writeHead(200, { "content-type": "text/html" })
-      res.end(ok ? "<p style='font-family:sans-serif'>eggox is logged in. You can close this tab.</p>" : `<p style='font-family:sans-serif'>eggox was not let in (${err || "bad state"}).</p>`)
+      // The page itself lives on the server, styled like the rest.
+      res.writeHead(302, { location: `${server}/cli/done?${ok ? "ok=1" : "error=" + encodeURIComponent(err || "bad_state")}` })
+      res.end()
       srv.close()
       if (ok) resolve(u.searchParams.get("code"))
       else reject(new Fail(`login was refused: ${err || "bad state"}`))
