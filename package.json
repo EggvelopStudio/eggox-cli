@@ -3,12 +3,11 @@
   "version": "0.1.4",
   "description": "Your Eggox games as files: pull, check, push, publish, and an MCP server for AI agents.",
   "author": "Eggvelop ApS",
-  "license": "UNLICENSED",
-  "homepage": "https://eggox.net/developers",
+  "license": "MIT",
+  "homepage": "https://dev.eggox.net",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Eggvelop-Aps/Eggox.git",
-    "directory": "cli"
+    "url": "git+https://github.com/Eggvelop-Aps/eggox-cli.git"
   },
   "keywords": [
     "eggox",
@@ -21,12 +20,17 @@
     "eggox": "bin/eggox.mjs"
   },
   "files": [
-    "bin"
+    "bin",
+    "LICENSE",
+    "README.md"
   ],
   "engines": {
     "node": ">=18"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/Eggvelop-Aps/eggox-cli/issues"
   }
 }

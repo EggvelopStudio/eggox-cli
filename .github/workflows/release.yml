@@ -1,0 +1,22 @@
+# Publishes @eggox/cli to npm when a version tag is pushed (v0.1.5).
+# Uses npm trusted publishing (OIDC): no token in the repo. On npmjs.com,
+# under the package's settings, add this repository and workflow file as
+# the trusted publisher once.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: node bin/eggox.mjs --help
+      - run: npm publish --provenance --access public
