@@ -7,7 +7,7 @@
   "homepage": "https://eggox.net/developers",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Eggvelop-Aps/Eggox.git",
+    "url": "git+https://github.com/Eggvelop-Aps/Eggox.git",
     "directory": "cli"
   },
   "keywords": [
