@@ -14,7 +14,7 @@ import crypto from "node:crypto"
 import readline from "node:readline"
 import { spawn } from "node:child_process"
 
-const VERSION = "0.1.3"
+const VERSION = "0.1.4"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -228,13 +228,19 @@ function slug(name) {
 // ── Commands ──────────────────────────────────────────────────────
 
 async function update(flags) {
+  // Installed by npm: npm owns the file.
+  if (process.argv[1].includes("node_modules")) {
+    throw new Fail(`this eggox came from npm; update it with:\n  npm install -g @eggox/cli@latest`)
+  }
   const server = serverFor(flags)
   const res = await fetch(`${server}/cli/eggox.mjs`)
-  if (!res.ok) throw new Fail(`${server} does not hand out the CLI (${res.status})`)
-  const text = await res.text()
-  const version = /const VERSION = "([^"]+)"/.exec(text)?.[1] || "?"
+  const text = res.ok ? await res.text() : ""
+  const version = /const VERSION = "([^"]+)"/.exec(text)?.[1]
+  // Anything that is not the CLI (a website, an error page) is not written.
+  if (!version || !text.startsWith("#!/usr/bin/env node")) throw new Fail(`${server} does not hand out the CLI (${res.status}); nothing changed`)
+  if (version === VERSION) return console.log(`eggox ${VERSION} is current.`)
   fs.writeFileSync(process.argv[1], text)
-  console.log(version === VERSION ? `eggox ${VERSION} is current.` : `eggox ${VERSION} → ${version}, from ${server}.`)
+  console.log(`eggox ${VERSION} → ${version}, from ${server}.`)
 }
 
 async function login(flags) {
