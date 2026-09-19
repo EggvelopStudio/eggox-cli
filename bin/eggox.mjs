@@ -14,7 +14,7 @@ import crypto from "node:crypto"
 import readline from "node:readline"
 import { spawn } from "node:child_process"
 
-const VERSION = "0.1.2"
+const VERSION = "0.1.3"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -558,11 +558,14 @@ if (!command || flags.help || !run) {
   process.exit(command && !run ? 1 : 0)
 }
 
-run().catch((e) => {
-  if (e instanceof Fail) {
-    console.error(e.message)
-    process.exit(1)
-  }
-  console.error(e?.stack || String(e))
-  process.exit(2)
-})
+// Every command goes through one promise, whether it is async or not.
+Promise.resolve()
+  .then(run)
+  .catch((e) => {
+    if (e instanceof Fail) {
+      console.error(e.message)
+      process.exit(1)
+    }
+    console.error(e?.stack || String(e))
+    process.exit(2)
+  })
