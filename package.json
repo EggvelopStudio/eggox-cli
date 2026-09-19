@@ -1,5 +1,5 @@
 {
-  "name": "eggox",
+  "name": "@eggox/cli",
   "version": "0.1.0",
   "description": "Your Eggox games as files: pull, check, push, publish, and an MCP server for AI agents.",
   "author": "Eggvelop ApS",
@@ -25,5 +25,8 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
