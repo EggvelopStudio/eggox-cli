@@ -15,7 +15,7 @@ import readline from "node:readline"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
-const VERSION = "0.3.1"
+const VERSION = "0.3.2"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
