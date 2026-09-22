@@ -15,7 +15,7 @@ import readline from "node:readline"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
-const VERSION = "0.3.2"
+const VERSION = "0.4.0"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -30,6 +30,8 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
   eggox check [dir]              would these files work? errors as file:line
   eggox push [dir] [--force]     make the game match the files
   eggox publish [dir]            publish the game as it stands
+  eggox playtest [dir]           play the pushed draft headless and print what the scripts did
+  eggox logs [dir]               the last playtest's logs and errors (browser or headless)
   eggox bag                      the mints in your bag
   eggox stock [dir]              the things this game holds
   eggox stock add <mint> [dir]   a mint from the bag into the game's stock
@@ -49,6 +51,12 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
   --server URL   which Eggox (default: the one you logged in to last)
   --json         machine-readable output
   EGGOX_TOKEN    a token to use instead of logging in
+
+Playtest options:
+  --steps "click Kettle; key space; ui brew 3; wait 2; walk 4,7; close; leave"
+  --script scenario.json|scenario.txt   the same steps from a file
+  --room <name>  start in this room (default the root)   --reset  forget playtest saves
+  --push         push the folder first
 
 Render options:
   --output file.png --width 1024 --height 768 --rotation 0|90|180|270
@@ -90,6 +98,12 @@ function parseArgs(argv) {
       flags[a.slice(2)] = argv[++i].split(",").map(v => v.trim() === "" ? NaN : Number(v))
     }
     else if (a === "--hidden") flags.hidden = true
+    else if (a === "--reset") flags.reset = true
+    else if (a === "--push") flags.push = true
+    else if (a === "--steps" || a === "--script") {
+      if (argv[i + 1] === undefined) throw new Fail(`${a} needs a value`)
+      flags[a.slice(2)] = argv[++i]
+    }
     else if (a === "--help" || a === "-h") flags.help = true
     else args.push(a)
   }
@@ -502,6 +516,95 @@ function renamedRooms(changes) {
   const renamed = new Set(renames.flat())
   const rest = changes.filter((c) => !(c.path.startsWith("rooms/") && c.kind !== "changed" && renamed.has(c.path.split("/")[1])))
   return { renames, rest }
+}
+
+// ── Playtest ─────────────────────────────────────────────────────
+
+// The steps of a scenario: --steps "a; b", or a file (a JSON list of
+// steps, or one step per line).
+function scenario(flags) {
+  if (flags.script) {
+    if (!fs.existsSync(flags.script)) throw new Fail(`no scenario file ${flags.script}`)
+    const text = fs.readFileSync(flags.script, "utf8")
+    if (flags.script.endsWith(".json")) {
+      try { return JSON.parse(text) } catch { throw new Fail(`${flags.script} is not valid JSON`) }
+    }
+    return text
+  }
+  return flags.steps || ""
+}
+
+async function playtest(flags, args) {
+  const dir = path.resolve(args[0] || ".")
+  if (flags.push) {
+    // In --json mode the push report would spoil the one JSON answer.
+    const log = console.log
+    if (flags.json) console.log = () => {}
+    try { await push({ ...flags, json: false }, [dir]) } finally { console.log = log }
+  }
+  const server = serverFor(flags, dir)
+  const game = gameOf(dir)
+  const body = { steps: scenario(flags), room: flags.rooms?.[0] || null, reset: !!flags.reset }
+  const r = await api(server, "POST", `/games/${ref(game.id)}/playtest`, body)
+  if (flags.json) return print(r.data)
+  if (r.status !== 200) refuse(r, "playtest")
+  printPlaytest(r.data)
+  if (r.data.errors > 0) process.exitCode = 1
+}
+
+function printPlaytest(report) {
+  console.log(`Playtest of ${report.room}: ${report.seconds} s, ${report.errors} error${report.errors === 1 ? "" : "s"}.`)
+  for (const step of report.steps) {
+    console.log(`\n${step.step}  (+${(step.at_ms / 1000).toFixed(2)} s)`)
+    const floors = step.events.filter((e) => e.kind === "floor")
+    for (const e of step.events) if (e.kind !== "floor") console.log(`  ${eventLine(e)}`)
+    if (floors.length) console.log(`  floor: ${floors.length} tile${floors.length === 1 ? "" : "s"} painted`)
+  }
+  const saves = report.saves || {}
+  if (Object.keys(saves.player || {}).length) console.log(`\nSaved for the player: ${JSON.stringify(saves.player)}`)
+  if (Object.keys(saves.game || {}).length) console.log(`Saved for the game: ${JSON.stringify(saves.game)}`)
+  if (report.limits?.length) console.log(`\nLimits hit: ${report.limits.join("; ")}`)
+}
+
+function eventLine(e) {
+  const where = e.room ? `[${e.room}] ` : ""
+  const thing = e.name ? `${e.name} (${e.thing || e.target})` : e.thing || e.target
+  switch (e.kind) {
+    case "diagnostic": return `${e.level.toUpperCase()} ${where}${e.text}`
+    case "log": return `log ${where}${e.text}`
+    case "entered": return `→ entered ${e.room}`
+    case "window": return e.spec ? `window ${where}${e.spec.id ? `#${e.spec.id} ` : ""}${JSON.stringify(e.spec).slice(0, 160)}` : `window ${where}closed`
+    case "set_state": return `set_state ${where}${thing ?? ""} → ${e.state}`
+    case "move": return `move ${where}${thing} → ${e.tile.join(",")}${e.glide_ms ? ` over ${e.glide_ms} ms` : ""}`
+    case "spawn": return `spawn ${where}${thing} at ${e.tile.join(",")}`
+    case "hide": case "show": return `${e.kind} ${where}${thing}`
+    case "tint": return `tint ${where}${thing} ${e.color ?? "off"}`
+    case "save": return `save ${where}${e.scope} ${e.key} = ${JSON.stringify(e.value)}`
+    case "send": return `send ${where}→ ${e.room} (${e.players} player${e.players === 1 ? "" : "s"})`
+    case "after": case "every": return `${e.kind} ${where}${e.seconds} s "${e.tag}"`
+    case "effect": return `effect ${where}${JSON.stringify({ ...e, kind: undefined, room: undefined, source: undefined })}`
+    default: {
+      const { kind, room, source, ...rest } = e
+      return `${kind} ${where}${Object.keys(rest).length ? JSON.stringify(rest) : ""}`
+    }
+  }
+}
+
+async function logs(flags, args) {
+  const dir = path.resolve(args[0] || ".")
+  const server = serverFor(flags, dir)
+  const game = gameOf(dir)
+  const r = await api(server, "GET", `/games/${ref(game.id)}/logs`)
+  if (flags.json) return print(r.data)
+  if (r.status !== 200) refuse(r, "logs")
+  const run = r.data.run
+  if (!run) return console.log("No playtest of this game since the server started. Playtest it in Eggox, or run eggox playtest.")
+  const when = new Date(run.started_at).toISOString().replace("T", " ").slice(0, 19)
+  console.log(`${run.headless ? "Headless playtest" : "Playtest"} of ${run.room}, started ${when} UTC, ${run.entries.length} line${run.entries.length === 1 ? "" : "s"}.`)
+  for (const e of run.entries) {
+    const t = new Date(e.at).toISOString().slice(11, 19)
+    console.log(`${t} ${e.level === "log" ? "log  " : e.level.toUpperCase()} [${e.room}] ${e.message}`)
+  }
 }
 
 async function publish(flags, args) {
@@ -1091,6 +1194,8 @@ const TOOLS = [
   ...BLUEPRINT_TOOLS,
   { name: "eggox_games", description: "The games the logged-in creator owns: id, name, rooms, published or not.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "eggox_pull", description: "Pull a game (by name or id) as files into a folder. Returns the folder and the file list.", inputSchema: { type: "object", properties: { game: { type: "string" }, dir: { type: "string", description: "folder to write into (default: the game's name)" } }, required: ["game"], additionalProperties: false } },
+  { name: "eggox_playtest", description: "Play the pushed draft headless on the server and return what its scripts did: per step (enter, then click/key/ui/walk/wait/close/leave) every effect (window, set_state, floor, move, save, send, log...) and every handler error, plus the saves and any limit hit. Push first, or set push. Steps: a string like 'click Kettle; key space; ui brew 3; wait 2' or a JSON list like [{\"click\":\"Kettle\"},{\"key\":\"space\"}]. Waits are real time, 60 s at most.", inputSchema: { type: "object", properties: { dir: { type: "string" }, steps: { description: "the scenario", oneOf: [{ type: "string" }, { type: "array", items: { type: "object" } }] }, room: { type: "string", description: "start in this room (default the root)" }, reset: { type: "boolean", description: "forget playtest saves first" }, push: { type: "boolean", description: "push the folder first" } }, additionalProperties: false } },
+  { name: "eggox_logs", description: "The last playtest of the game (the human's in the browser, or a headless one): logs, handler errors, limits hit, with times and rooms.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_check", description: "Would the project in a folder work? Returns what would change, or errors as file:line: text.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_push", description: "Make the game match the project in a folder (its draft; the human plays it in Eggox). Refused if the game changed since the pull unless force.", inputSchema: { type: "object", properties: { dir: { type: "string" }, force: { type: "boolean" } }, additionalProperties: false } },
   { name: "eggox_bag", description: "The mints in the creator's bag (things a game can hold).", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
@@ -1157,6 +1262,8 @@ async function mcp(flags) {
               case "eggox_pull": return pull(f, [a.game, a.dir].filter(Boolean))
               case "eggox_check": return check(f, [a.dir || "."])
               case "eggox_push": return push(f, [a.dir || "."])
+              case "eggox_playtest": return playtest({ ...f, json: true, steps: a.steps, rooms: a.room ? [a.room] : undefined, reset: !!a.reset, push: !!a.push }, [a.dir || "."]).then(() => undefined)
+              case "eggox_logs": return logs({ ...f, json: true }, [a.dir || "."])
               case "eggox_bag": return bag(f)
               case "eggox_stock": return stock(f, [a.dir || "."])
               case "eggox_stock_add": return stock(f, ["add", a.item, a.dir || "."])
@@ -1219,6 +1326,8 @@ const run = {
   check: () => check(flags, args),
   push: () => push(flags, args),
   publish: () => publish(flags, args),
+  playtest: () => playtest(flags, args),
+  logs: () => logs(flags, args),
   bag: () => bag(flags),
   blueprints: () => blueprints(flags),
   blueprint: () => blueprint(flags, args),

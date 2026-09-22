@@ -121,6 +121,8 @@ The Studio inside Eggox and these files are two views of one game: a push shows 
 | `eggox pull <game> [dir]` | the game as files, by name or id |
 | `eggox check [dir]` | would these files work? compile errors by line, playability warnings |
 | `eggox push [dir] [--force]` | make the game match the files, whole or not at all |
+| `eggox playtest [dir] --steps "..."` | play the pushed draft headless; every effect and handler error, step by step |
+| `eggox logs [dir]` | the last playtest's logs and errors, from the browser or headless |
 | `eggox publish [dir]` | ship the draft: the door leads here from now on |
 | `eggox bag` | the mints in your bag |
 | `eggox entrance [set <mint>\|reset] [dir]` | use stock artwork for the entrance or restore its floor star |
