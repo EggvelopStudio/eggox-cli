@@ -74,9 +74,9 @@ The CLI also exports `BLUEPRINT_RULES`, `BLUEPRINT_SCHEMA`, `encodeBlueprint` an
 `decodeBlueprint` from its single file. Keep them aligned with
 `client/src/voxel/format.ts` and `Eggox.VoxelItems.Authoring`/`Behavior`. Blueprint
 files use sparse complete frames and preserve hidden layers and metadata.
-`eggox blueprint` supports schema/init/buy/pull/check/frame/push/history/publish/mint.
-Creator OAuth consent explicitly grants blueprint purchases with Voxels and item
-publication/minting; never widen existing games/editor grants. MCP includes these
+`eggox blueprint` supports schema/init/pull/check/frame/push/history/publish/mint.
+Creator OAuth consent grants item publication/minting and never spending: the CLI
+and MCP must not buy anything or spend Voxels, Stars or Gold; never widen existing games/editor grants. MCP includes these
 explicit item actions, while game publication remains a human CLI step.
 
 Tests: `node --test test/blueprint.test.mjs`. The monorepo codec compatibility test

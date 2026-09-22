@@ -38,7 +38,7 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
   eggox entrance set <mint> [dir] use a stock mint as the entrance
   eggox entrance reset [dir]     restore the default floor star
   eggox blueprints               your blueprints and latest prototypes
-  eggox blueprint <action>       schema, init, buy, pull, check, frame, render, push, history, publish, mint
+  eggox blueprint <action>       schema, init, pull, check, frame, render, push, history, publish, mint
   eggox blueprint render [file]  render local edits, or use --id <saved blueprint>
   eggox render [dir]             render a saved game layout (or --game <name/id>)
   eggox renders                  remaining hourly account render allowance
@@ -901,7 +901,7 @@ async function blueprints(flags) {
   const r = await api(serverFor(flags), "GET", "/blueprints")
   if (r.status !== 200) refuse(r, "blueprints")
   if (flags.json) return print(r.data)
-  console.log(`${r.data.voxel_balance} Voxels; a blueprint costs ${r.data.blueprint_cost}.`)
+  if (r.data.blueprints.length === 0) console.log("No blueprints yet. Buy one in Eggox (the Studio); the CLI never spends your Voxels.")
   for (const b of r.data.blueprints) console.log(`${b.display_name} · ${b.kind} v${b.version}\n  ${b.id}`)
 }
 async function blueprint(flags, args) {
@@ -940,11 +940,7 @@ async function blueprint(flags, args) {
     return print({ ...r.data, file, editor: `${server}/client` })
   }
   const server = serverFor(flags)
-  if (action === "buy") {
-    const r = await api(server, "POST", "/blueprints")
-    if (r.status !== 200) refuse(r, "buy blueprint")
-    return print(r.data)
-  }
+  if (action === "buy") throw new Fail("the CLI never spends your Voxels: buy a blueprint in Eggox (the Studio), then eggox blueprints lists it")
   if (["pull", "history", "publish", "mint"].includes(action)) {
     const id = rest[0]
     assertBlueprint(typeof id === "string" && id.length > 0, "id", `usage: eggox blueprint ${action} <id>`)
@@ -963,7 +959,7 @@ async function blueprint(flags, args) {
     if (r.status !== 200) refuse(r, `blueprint ${action}`)
     return print(action === "history" ? groupHistory(r.data) : r.data)
   }
-  throw new Fail("usage: eggox blueprint schema|init|buy|pull|check|frame|push|history|publish|mint (see eggox docs blueprints)")
+  throw new Fail("usage: eggox blueprint schema|init|pull|check|frame|push|history|publish|mint (see eggox docs blueprints)")
 }
 
 // Render images stay binary on disk and become native image content in MCP.
@@ -1076,10 +1072,9 @@ const bpFile = { file: { type: "string", description: "Local blueprint JSON file
 const bpId = { id: { type: "string", description: "Owned blueprint or prototype id" } }
 const bpForce = { force: { type: "boolean", description: "Explicitly allow overwriting the file or branching from a stale iteration" } }
 const BLUEPRINT_TOOLS = [
-  { name: "eggox_blueprints", description: "List owned blueprints and latest prototypes, balance and blueprint price.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+  { name: "eggox_blueprints", description: "List owned blueprints and latest prototypes. Blueprints are bought by the user in Eggox; tools never buy them.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   blueprintTool("schema", "Offline JSON schema and all voxel frame authoring limits. Generate files locally; upload complete frames in one push."),
   blueprintTool("init", "Create an empty local blueprint file, without spending Voxels.", { ...bpFile, ...bpForce }),
-  blueprintTool("buy", "Spend the user's Voxels on one empty blueprint at the price shown by eggox_blueprints. Use when the user wants a new blueprint."),
   blueprintTool("pull", "Download a blueprint/prototype with complete frames, layers and metadata to a local file. Never returns voxel arrays through MCP.", { ...bpId, ...bpFile, ...bpForce }, ["id"]),
   blueprintTool("check", "Validate a local blueprint offline. Set remote for authoritative server validation without saving.", { ...bpFile, remote: { type: "boolean" } }),
   blueprintTool("frame", "Replace a complete frame from a local JSON file, or append at frames.length. Validates the whole document before writing.", { ...bpFile, index: { type: "integer", minimum: 0 }, frame_file: { type: "string" } }, ["index", "frame_file"]),
@@ -1151,7 +1146,6 @@ async function mcp(flags) {
               case "eggox_blueprints": return blueprints({ ...f, json: true })
               case "eggox_blueprint_schema": return blueprint(f, ["schema"])
               case "eggox_blueprint_init": return blueprint(f, ["init", a.file])
-              case "eggox_blueprint_buy": return blueprint(f, ["buy"])
               case "eggox_blueprint_pull": return blueprint(f, ["pull", a.id, a.file])
               case "eggox_blueprint_check": return blueprint(f, ["check", a.file])
               case "eggox_blueprint_frame": return blueprint(f, ["frame", a.file || "blueprint.json", a.index, a.frame_file])

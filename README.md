@@ -172,7 +172,7 @@ eggox blueprint mint pt_ID --count 10
 ```
 
 The JSON file supports sparse rows or dense voxel bytes, layers and animation
-metadata. `eggox blueprint buy` purchases a new blank blueprint with Voxels.
+metadata. Blank blueprints are bought in Eggox itself; the CLI never spends Voxels.
 `history` lists iterations, `publish` publishes one without issuing new supply.
 Pushing saves a draft; minting publishes permanently and creates the editions.
 
@@ -180,8 +180,8 @@ Pushing saves a draft; minting publishes permanently and creates the editions.
 Blueprints use the same login and MCP process. `eggox_blueprints` lists your items;
 `eggox_blueprint_schema` exports the offline frame contract. The
 `eggox_blueprint_init`, `pull`, `check`, `frame`, `push`, and `history` tools work
-with files, keeping voxel arrays out of tool replies. `eggox_blueprint_buy` spends
-Voxels; `eggox_blueprint_publish` and `eggox_blueprint_mint` perform explicit,
+with files, keeping voxel arrays out of tool replies. Tools never buy
+anything: blueprints are bought by the user in Eggox. `eggox_blueprint_publish` and `eggox_blueprint_mint` perform explicit,
 permanent item actions when requested by the user. Old games-only logins need
 `eggox login` again to approve creator access. See
 [Blueprint files](https://dev.eggox.net/studio/blueprints), or `eggox docs blueprints`.
