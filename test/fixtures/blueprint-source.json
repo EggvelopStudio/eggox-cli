@@ -1,0 +1,109 @@
+{
+  "document": {
+    "format": "eggox-blueprint",
+    "version": 1,
+    "display_name": "Layered test",
+    "item_type": "solid",
+    "size": {
+      "x": 2,
+      "y": 2,
+      "z": 2
+    },
+    "palette": [
+      "#000000",
+      "#ff0000",
+      "#00ff00"
+    ],
+    "rotations": 4,
+    "frames": [
+      {
+        "layers": [
+          {
+            "name": "base",
+            "visible": true,
+            "voxels": [
+              [
+                1,
+                0,
+                0,
+                1
+              ]
+            ]
+          },
+          {
+            "name": "top",
+            "visible": true,
+            "voxels": [
+              [
+                1,
+                0,
+                0,
+                2
+              ]
+            ]
+          },
+          {
+            "name": "hidden",
+            "visible": false,
+            "voxels": [
+              [
+                0,
+                1,
+                1,
+                1
+              ]
+            ]
+          }
+        ],
+        "activeLayer": 2
+      },
+      {
+        "voxels": [
+          [
+            0,
+            0,
+            0,
+            2
+          ]
+        ]
+      }
+    ],
+    "behavior": {
+      "clips": [
+        {
+          "name": "blink",
+          "frames": [
+            0,
+            1,
+            0
+          ]
+        }
+      ],
+      "states": [],
+      "interactions": []
+    }
+  },
+  "source": {
+    "display_name": "Layered test",
+    "item_type": "solid",
+    "collision_height": null,
+    "behavior": {
+      "clips": [
+        {
+          "name": "blink",
+          "frames": [
+            0,
+            1,
+            0
+          ]
+        }
+      ],
+      "states": [],
+      "interactions": []
+    },
+    "zones": null,
+    "skeleton": null,
+    "voxel_binding_b64": null,
+    "voxel_source_b64": "AwACAAIAAgADAAAAAP8AAAD/AAQCAGQAAAAGAAAAAQABAgYAZAAAAAQAAAABAgcARUdMWQEDAgEEYmFzZQYAAAABAAEBBgABA3RvcAYAAAABAAECBgAABmhpZGRlbgYAAAAGAAEBAQABAAEHbGF5ZXIgMQQAAAABAgcA"
+  }
+}

@@ -1,13 +1,13 @@
 {
   "name": "@eggox/cli",
-  "version": "0.1.4",
-  "description": "Your Eggox games as files: pull, check, push, publish, and an MCP server for AI agents.",
+  "version": "0.3.1",
+  "description": "Your Eggox games and voxel blueprints as files: create, iterate, mint, and an MCP server for AI agents.",
   "author": "Eggvelop ApS",
   "license": "MIT",
   "homepage": "https://dev.eggox.net",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Eggvelop-Aps/eggox-cli.git"
+    "url": "git+https://github.com/EggvelopStudio/eggox-cli.git"
   },
   "keywords": [
     "eggox",
@@ -31,6 +31,6 @@
     "access": "public"
   },
   "bugs": {
-    "url": "https://github.com/Eggvelop-Aps/eggox-cli/issues"
+    "url": "https://github.com/EggvelopStudio/eggox-cli/issues"
   }
 }

@@ -44,6 +44,21 @@ One file, no dependencies. `eggox --help` prints the version and every command.
 
 ## Quick start
 
+### See what you build
+
+```sh
+eggox blueprint render blueprint.json --frame 2 --rotation 90 --output frame.png
+eggox render ./my-game --output overview.png
+eggox render ./my-game --room Arena --bounds 4,6,12,8 --output section.png
+eggox renders   # shared hourly allowance and reset time
+```
+
+Blueprint previews include unsaved local edits. Experience previews read the server's draft or published layout, so push local changes first. Select layers, rooms, tile bounds or a placement to focus, and control view, rotation, dimensions and background. Images and selection metadata are saved together; existing files require `--force` to overwrite. Experience snapshots do not execute scripts or include players/HUD effects.
+
+MCP exposes `eggox_blueprint_render`, `eggox_render`, and `eggox_render_quota`. The render tools return native image content directly to the agent. The default server allowance is 30 render attempts per account per UTC hour, shared across all tokens and both render types. See [the render reference](https://dev.eggox.net/cli/render), also included in `eggox docs project` and `eggox docs blueprints`.
+
+### Edit a game
+
 ```sh
 eggox login                      # a browser opens once
 eggox games                      # the games you own
@@ -108,6 +123,7 @@ The Studio inside Eggox and these files are two views of one game: a push shows 
 | `eggox push [dir] [--force]` | make the game match the files, whole or not at all |
 | `eggox publish [dir]` | ship the draft: the door leads here from now on |
 | `eggox bag` | the mints in your bag |
+| `eggox entrance [set <mint>\|reset] [dir]` | use stock artwork for the entrance or restore its floor star |
 | `eggox stock [add\|take] [..]` | the things the game holds; put one in, take one back |
 | `eggox docs [api\|project]` | the reference as markdown |
 | `eggox mcp` | serve all of this to an AI agent over MCP |
@@ -127,11 +143,7 @@ Everything is text and every command is here, so an agent can build a whole game
 { "mcpServers": { "eggox": { "command": "eggox", "args": ["mcp"] } } }
 ```
 
-```sh
-claude mcp add eggox -- eggox mcp
-```
-
-The tools are `eggox_games`, `eggox_pull`, `eggox_check`, `eggox_push`, `eggox_bag`, `eggox_stock`, `eggox_stock_add` and `eggox_docs`. There is no publish tool on purpose: an agent pushes all day, a person ships. Every docs page is also markdown (add `.md`), and [dev.eggox.net/llms.txt](https://dev.eggox.net/llms.txt) lists them all.
+The tools are `eggox_games`, `eggox_pull`, `eggox_check`, `eggox_push`, `eggox_bag`, `eggox_stock`, `eggox_stock_add`, `eggox_entrance` and `eggox_docs`. There is no game-publish tool on purpose: an agent pushes all day, a person ships. Every docs page is also markdown (add `.md`), [dev.eggox.net/llms.txt](https://dev.eggox.net/llms.txt) lists them all, and projects follow `AGENTS.md` guidelines.
 
 > Read the eggox docs for the project format, the bricks and the scripting API. Pull "My Game". Make a race: a spawn, a finish, rounds of two minutes, and a sign at the start that explains it. Check until it passes, push, and tell me what you changed.
 
@@ -142,6 +154,38 @@ The tools are `eggox_games`, `eggox_pull`, `eggox_check`, `eggox_push`, `eggox_b
 - **Push** is one transaction on the server: either the whole folder lands or nothing changes.
 - **Servers**: eggox.net by default; `--server` or `EGGOX_SERVER` for another one, such as a staging server.
 
+## Blueprint files
+
+Build complete voxel frames locally, then push an iteration for final touches in
+the editor. The editor can stay closed while your scripts or agent work.
+
+```sh
+eggox login                       # approve creator access once
+eggox blueprints                  # select an owned blueprint
+eggox blueprint pull bp_ID chair.json
+eggox blueprint schema            # offline rules and JSON schema
+# Generate or edit chair.json locally
+eggox blueprint check chair.json
+eggox blueprint push chair.json
+# When you want editions, use the saved prototype id:
+eggox blueprint mint pt_ID --count 10
+```
+
+The JSON file supports sparse rows or dense voxel bytes, layers and animation
+metadata. `eggox blueprint buy` purchases a new blank blueprint with Voxels.
+`history` lists iterations, `publish` publishes one without issuing new supply.
+Pushing saves a draft; minting publishes permanently and creates the editions.
+
+
+Blueprints use the same login and MCP process. `eggox_blueprints` lists your items;
+`eggox_blueprint_schema` exports the offline frame contract. The
+`eggox_blueprint_init`, `pull`, `check`, `frame`, `push`, and `history` tools work
+with files, keeping voxel arrays out of tool replies. `eggox_blueprint_buy` spends
+Voxels; `eggox_blueprint_publish` and `eggox_blueprint_mint` perform explicit,
+permanent item actions when requested by the user. Old games-only logins need
+`eggox login` again to approve creator access. See
+[Blueprint files](https://dev.eggox.net/studio/blueprints), or `eggox docs blueprints`.
+
 ## Contributing
 
 Issues and pull requests are welcome here. The file is mirrored from the Eggox monorepo, so a merged change lands in the next release; releases are tags (`v0.1.4`) and publish to npm from this repo's workflow. `main` is what eggox.net runs, `staging` is what is on its way.
@@ -149,3 +193,20 @@ Issues and pull requests are welcome here. The file is mirrored from the Eggox m
 ## License
 
 MIT, Eggvelop ApS.
+
+### Custom experience entrances
+
+```sh
+eggox stock add "Cat Door"
+eggox entrance set "Cat Door"
+eggox entrance --json
+eggox entrance reset
+```
+
+Choose an existing stock mint by name or id. The entrance retains its shape and
+walking rules; authors must leave the entry tile accessible. The mint remains in
+stock and can still be instanced inside. Reset or change entrances using it
+before taking it back to the bag. Changes apply immediately without publishing
+gameplay; project check/push leave this setting alone. Studio offers the same
+control under **Entrance Appearance**. MCP exposes `eggox_entrance` with `action`,
+`item` and `dir`. See the server’s `/cli/entrance` documentation.
