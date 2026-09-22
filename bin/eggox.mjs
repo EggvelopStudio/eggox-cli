@@ -229,7 +229,8 @@ function slug(name) {
 
 async function update(flags) {
   // Installed by npm: npm owns the file.
-  if (process.argv[1].includes("node_modules")) {
+  // (npm links bin/eggox to the package, so look through the link.)
+  if (fs.realpathSync(process.argv[1]).includes("node_modules")) {
     throw new Fail(`this eggox came from npm; update it with:\n  npm install -g @eggox/cli@latest`)
   }
   const server = serverFor(flags)
@@ -378,9 +379,12 @@ async function push(flags, args) {
 // that differ, then the rooms where things moved. Rooms nothing
 // happened in are one line together.
 function report(data, verb) {
-  const changes = data.changes || []
+  const { renames, rest: changes } = renamedRooms(data.changes || [])
+  for (const [from, to] of renames) console.log(`renamed rooms/${from} → rooms/${to}`)
   for (const c of changes) console.log(`${c.kind === "added" ? "+" : c.kind === "removed" ? "-" : "~"} ${c.path}`)
+  if (renames.length) console.log("note: folder names are the room names with characters like & / : turned into -; send() and doors take the real room name")
   const rooms = data.rooms || []
+  const touched = new Set((data.changes || []).map((c) => c.path.split("/")[1]).filter(Boolean))
   const moved = rooms.filter((r) => r.created || r.placed || r.removed)
   for (const room of moved) {
     const parts = []
@@ -389,12 +393,43 @@ function report(data, verb) {
     if (room.removed) parts.push(`${room.removed} picked up`)
     console.log(`${room.name}: ${parts.join(", ")}`)
   }
-  const still = rooms.length - moved.length
+  // A room is untouched when nothing was placed or picked up in it and
+  // none of its files changed.
+  const still = rooms.filter((r) => !moved.includes(r) && !touched.has(slug(r.name))).length
   const things = rooms.reduce((n, r) => n + (r.kept || 0), 0)
-  if (changes.length === 0 && moved.length === 0) console.log(`Nothing ${verb === "would be" ? "would change" : "changed"}: ${rooms.length} room${rooms.length === 1 ? "" : "s"}, ${things} things as they were.`)
-  else if (still > 0) console.log(`${still} other room${still === 1 ? "" : "s"} as they were.`)
+  if (changes.length === 0 && renames.length === 0 && moved.length === 0) console.log(`Nothing ${verb === "would be" ? "would change" : "changed"}: ${rooms.length} room${rooms.length === 1 ? "" : "s"}, ${things} things as they were.`)
+  else if (still > 0) console.log(`${still} room${still === 1 ? "" : "s"} unchanged.`)
   for (const w of data.warnings || []) console.log(`note: ${w}`)
   if (verb === "would be") console.log("Everything compiles. Nothing was written.")
+}
+
+// A room folder whose every file went away while another came with the
+// same files is one room renamed, not a room removed and one added.
+function renamedRooms(changes) {
+  const byFolder = (kind) => {
+    const m = new Map()
+    for (const c of changes) {
+      const [top, folder, ...file] = c.path.split("/")
+      if (top !== "rooms" || c.kind !== kind || !folder) continue
+      if (!m.has(folder)) m.set(folder, [])
+      m.get(folder).push(file.join("/"))
+    }
+    return m
+  }
+  const gone = byFolder("removed")
+  const came = byFolder("added")
+  const renames = []
+  for (const [from, files] of gone) {
+    const key = [...files].sort().join("\n")
+    for (const [to, others] of came) {
+      if ([...others].sort().join("\n") !== key || renames.some(([, t]) => t === to)) continue
+      renames.push([from, to])
+      break
+    }
+  }
+  const renamed = new Set(renames.flat())
+  const rest = changes.filter((c) => !(c.path.startsWith("rooms/") && c.kind !== "changed" && renamed.has(c.path.split("/")[1])))
+  return { renames, rest }
 }
 
 async function publish(flags, args) {
