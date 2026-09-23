@@ -158,3 +158,25 @@ test("dense grids keep large pulls bounded and can be generated without sparse r
   doc.frames[0].voxels_b64 = Buffer.alloc(18 ** 3 - 1).toString("base64")
   assert.throws(() => encodeBlueprint(doc), /dense grid/)
 })
+
+test("a tall solid with no footprint is warned about on check and blocks its tiles on push", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eggox-tall-"))
+  try {
+    const tall = { ...fixture(), size: { x: 2, y: 2, z: 40 } }
+    fs.writeFileSync(path.join(dir, "tall.json"), JSON.stringify(tall))
+    let r = run(["blueprint", "check", path.join(dir, "tall.json")])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(JSON.parse(r.stdout).warnings[0], /40 voxels tall with no footprint/)
+
+    fs.writeFileSync(path.join(dir, "low.json"), JSON.stringify(fixture()))
+    r = run(["blueprint", "check", path.join(dir, "low.json")])
+    assert.equal(JSON.parse(r.stdout).warnings, undefined)
+
+    const seat = { ...tall, item_type: "seat" }
+    fs.writeFileSync(path.join(dir, "seat.json"), JSON.stringify(seat))
+    r = run(["blueprint", "check", path.join(dir, "seat.json")])
+    assert.equal(JSON.parse(r.stdout).warnings, undefined)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

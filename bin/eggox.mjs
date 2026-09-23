@@ -38,7 +38,7 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
   eggox stock take <thing> [dir] a thing back to the bag (none may stand)
   eggox stock use <thing> <version|latest> [dir]  show another published version, every instance too
   eggox entrance [dir]           current entrance and available stock mints
-  eggox entrance set <mint> [dir] use a stock mint as the entrance
+  eggox entrance set <mint> [dir] use a stock mint as the entrance (--room <name>: that room's door)
   eggox entrance reset [dir]     restore the default floor star
   eggox blueprints               your blueprints and latest prototypes
   eggox blueprint <action>       schema, init, pull, check, frame, render, push, history, publish, mint
@@ -244,7 +244,8 @@ function formatError(e) {
 
 // ── The project on disk ───────────────────────────────────────────
 
-const PROJECT_FILE = /^(eggox\.json|rooms\/[^/]+\/(room\.json|[^/]+\.lua)|things\/[^/]+\.(lua|json))$/
+// Any other .lua file is a shared module rooms can require("its/path").
+const PROJECT_FILE = /^(eggox\.json|rooms\/[^/]+\/(room\.json|[^/]+\.lua)|things\/[^/]+\.(lua|json)|(?!rooms\/|things\/)[^/]+(\/[^/]+)*\.lua)$/
 
 function readProject(dir) {
   const files = {}
@@ -693,13 +694,31 @@ async function bag(flags) {
   for (const m of r.data.mints) console.log(`${m.name}${m.quantity > 1 ? ` ×${m.quantity}` : ""}\n  ${m.id}`)
 }
 
+// A room of the pulled game by its name (or folder), as its room.json says.
+function roomId(dir, name) {
+  const roomsDir = path.join(dir, "rooms")
+  const rooms = fs.existsSync(roomsDir) ? fs.readdirSync(roomsDir) : []
+  for (const folder of rooms) {
+    const file = path.join(roomsDir, folder, "room.json")
+    if (!fs.existsSync(file)) continue
+    const room = JSON.parse(fs.readFileSync(file, "utf8"))
+    if (room.name === name || folder === name || room.id === name) {
+      if (!room.id) throw new Fail(`${folder} has not been pushed yet: eggox push first`)
+      return room.id
+    }
+  }
+  throw new Fail(`no room called ${JSON.stringify(name)} in ${dir}`)
+}
+
 async function entrance(flags, args) {
   const action = ["set", "reset"].includes(args[0]) ? args.shift() : "get"
   const item = action === "set" ? args.shift() : null
   if (action === "set" && !item) throw new Fail("usage: eggox entrance set <stock mint name or id> [dir]")
   const dir = path.resolve(args[0] || ".")
   const server = serverFor(flags, dir)
-  const route = `/games/${ref(gameOf(dir).id)}/entrance`
+  // The game's own door, or with --room the door into one of its rooms.
+  const target = flags.rooms?.[0] ? roomId(dir, flags.rooms[0]) : gameOf(dir).id
+  const route = `/games/${ref(target)}/entrance`
   const current = await api(server, "GET", route)
   if (current.status !== 200) refuse(current, "entrance")
   if (action === "get") {
@@ -843,6 +862,20 @@ const shortName = v => typeof v === "string" && v.length > 0 && [...v].length <=
 function knownKeys(value, keys, at) {
   assertBlueprint(object(value), at, "expected an object")
   for (const key of Object.keys(value)) assertBlueprint(keys.includes(key), `${at}.${key}`, "unknown field")
+}
+
+// A thing taller than one step (24 voxels) with no footprint and no
+// collision height would offer its top as a floor nobody can climb to.
+// Such a thing blocks its tiles unless its author says otherwise.
+function blockedByDefault(doc) {
+  // Seats, beds, water and wearables have their own rules for where a body goes.
+  if (doc.item_type !== "solid" || doc.behavior?.footprint != null || doc.collision_height != null || !(doc.size?.z > 24)) return null
+  const cells = Array(Math.ceil(doc.size.x / 32) * Math.ceil(doc.size.y / 32)).fill(-1)
+  return {
+    doc: { ...doc, behavior: { ...(doc.behavior || {}), footprint: { sizeX: doc.size.x, sizeY: doc.size.y, cells } } },
+    warning: `${doc.size.z} voxels tall with no footprint: pushed as-is it blocks its tiles (players walk around it). Add behavior.footprint to make parts walkable or standable (-1 blocks, 0 passes, a height is a floor at that height).`,
+    note: "no footprint was given, so it blocks its tiles; behavior.footprint changes that",
+  }
 }
 
 function validateBehavior(b, doc) {
@@ -1105,22 +1138,23 @@ async function blueprint(flags, args) {
       assertBlueprint(!!rest[2], "frame", "usage: eggox blueprint frame <file> <index> <frame.json>")
       doc.frames[index] = readBlueprint(rest[2])
     }
-    const payload = encodeBlueprint(doc)
+    const blocked = action === "frame" ? null : blockedByDefault(doc)
+    const payload = encodeBlueprint(blocked && action === "push" ? blocked.doc : doc)
     if (action === "frame") { saveBlueprint(file, doc, true); return print({ file, frame: Number(rest[1]), ok: true }) }
     if (action === "check") {
       if (flags.remote) {
         const r = await api(blueprintServer(flags, doc), "POST", "/blueprints/check", payload)
         if (r.status !== 200) refuse(r, "blueprint check")
       }
-      return print({ ok: true, file, frames: doc.frames.length, bytes: Buffer.byteLength(payload.voxel_source_b64, "base64"), remote: !!flags.remote })
+      return print({ ok: true, file, frames: doc.frames.length, bytes: Buffer.byteLength(payload.voxel_source_b64, "base64"), remote: !!flags.remote, ...(blocked ? { warnings: [blocked.warning] } : {}) })
     }
     assertBlueprint(typeof doc.id === "string" && doc.id, "id", "pull a blueprint first; push needs its id")
     assertBlueprint(flags.force || typeof doc.revision === "string", "revision", "pull first, or explicitly push --force")
     const server = blueprintServer(flags, doc)
     const r = await api(server, "PUT", `/blueprints/${encodeURIComponent(doc.id)}`, { ...payload, revision: doc.revision, force: !!flags.force })
     if (r.status !== 200) refuse(r, "blueprint push")
-    saveBlueprint(file, { ...doc, id: r.data.item.id, revision: r.data.revision, server }, true)
-    return print({ ...r.data, file, editor: `${server}/client` })
+    saveBlueprint(file, { ...(blocked ? blocked.doc : doc), id: r.data.item.id, revision: r.data.revision, server }, true)
+    return print({ ...r.data, file, editor: `${server}/client`, ...(blocked ? { notes: [blocked.note] } : {}) })
   }
   const server = serverFor(flags)
   if (action === "buy") throw new Fail("the CLI never spends your Voxels: buy a blueprint in Eggox (the Studio), then eggox blueprints lists it")
@@ -1282,7 +1316,7 @@ const TOOLS = [
   { name: "eggox_stock", description: "The things a game holds, with how many stand where.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_stock_use", description: "Show another published version of a thing in the game's stock: the thing and every instance standing switch together. Free; only versions the author published.", inputSchema: { type: "object", properties: { item: { type: "string", description: "the thing's name or id, as eggox_stock lists it" }, version: { description: "a version number, or \"latest\"", oneOf: [{ type: "integer" }, { type: "string", enum: ["latest"] }] }, dir: { type: "string" } }, required: ["item", "version"], additionalProperties: false } },
   { name: "eggox_stock_add", description: "Put a mint from the bag into the game's stock, so rooms can place it by name.", inputSchema: { type: "object", properties: { item: { type: "string", description: "the mint's name or id" }, dir: { type: "string" } }, required: ["item"], additionalProperties: false } },
-  { name: "eggox_entrance", description: "Read an experience entrance, use a mint from its game's stock, or reset to the floor star. Changes apply immediately outside; they do not publish the game. Custom art keeps its shape and walking rules.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get", "set", "reset"] }, item: { type: "string", description: "stock mint name or id; required for set" }, dir: { type: "string" } }, additionalProperties: false } },
+  { name: "eggox_entrance", description: "Read an experience entrance (or, with room, the door into one of its rooms), use a mint from its game's stock, or reset to the floor star. Changes apply immediately outside; they do not publish the game. Custom art keeps its shape and walking rules.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get", "set", "reset"] }, item: { type: "string", description: "stock mint name or id; required for set" }, room: { type: "string", description: "a room of the game: its door instead of the game's own entrance" }, dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_docs", description: "The reference as markdown: 'api' (the scripting API: events, verbs, bricks) or 'project' (the file format and the CLI), or 'blueprints' (complete voxel authoring and minting contract). Read both before writing a game.", inputSchema: { type: "object", properties: { page: { type: "string", enum: ["api", "project", "blueprints"] } }, required: ["page"], additionalProperties: false } },
 ]
 
@@ -1357,7 +1391,7 @@ async function mcp(flags) {
                 const action = a.action || "get"
                 if (!["get", "set", "reset"].includes(action)) throw new Fail("entrance action must be get, set or reset")
                 if (action === "set" && !a.item) throw new Fail("entrance set needs a stock mint name or id")
-                return entrance({ ...f, json: true }, action === "get" ? [a.dir || "."] : action === "set" ? ["set", a.item, a.dir || "."] : ["reset", a.dir || "."])
+                return entrance({ ...f, json: true, rooms: a.room ? [a.room] : undefined }, action === "get" ? [a.dir || "."] : action === "set" ? ["set", a.item, a.dir || "."] : ["reset", a.dir || "."])
               }
               case "eggox_docs": {
                 const server = serverFor(f)
