@@ -15,7 +15,7 @@ import readline from "node:readline"
 import { spawn } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
-const VERSION = "0.4.0"
+const VERSION = "0.4.1"
 const DEFAULT_SERVER = "https://eggox.net"
 const CONFIG_DIR = path.join(process.env.EGGOX_HOME || path.join(os.homedir(), ".config"), "eggox")
 const CREDENTIALS = path.join(CONFIG_DIR, "credentials.json")
@@ -36,6 +36,7 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
   eggox stock [dir]              the things this game holds
   eggox stock add <mint> [dir]   a mint from the bag into the game's stock
   eggox stock take <thing> [dir] a thing back to the bag (none may stand)
+  eggox stock use <thing> <version|latest> [dir]  show another published version, every instance too
   eggox entrance [dir]           current entrance and available stock mints
   eggox entrance set <mint> [dir] use a stock mint as the entrance
   eggox entrance reset [dir]     restore the default floor star
@@ -55,7 +56,15 @@ const HELP = `eggox ${VERSION}: your Eggox games and blueprints as files, from y
 Playtest options:
   --steps "click Kettle; key space; ui brew 3; wait 2; walk 4,7; close; leave"
   --script scenario.json|scenario.txt   the same steps from a file
+  expect steps check the game and fail the run (exit 1) when wrong:
+    expect save visits = 2 | expect game_save best = 10 | expect save k unset
+    expect window shop | expect no window | expect state Kettle = boiling
+    expect at 4,7 | expect room Hall | expect log brewed | expect no errors
   --room <name>  start in this room (default the root)   --reset  forget playtest saves
+  --save key=value       a player save before the run (repeatable; JSON values)
+  --game-save key=value  a game save before the run (repeatable)
+  --saves file.json      {"player": {...}, "game": {...}} before the run
+  --seed N       math.random repeats run to run
   --push         push the folder first
 
 Render options:
@@ -100,6 +109,22 @@ function parseArgs(argv) {
     else if (a === "--hidden") flags.hidden = true
     else if (a === "--reset") flags.reset = true
     else if (a === "--push") flags.push = true
+    else if (a === "--save" || a === "--game-save") {
+      const kv = argv[++i]
+      const eq = kv ? kv.indexOf("=") : -1
+      if (eq < 1) throw new Fail(`${a} needs key=value`)
+      const scope = a === "--save" ? "player" : "game"
+      ;((flags.saveValues ||= {})[scope] ||= {})[kv.slice(0, eq)] = saveValue(kv.slice(eq + 1))
+    }
+    else if (a === "--seed") {
+      const n = Number(argv[++i])
+      if (!Number.isInteger(n)) throw new Fail("--seed needs a whole number")
+      flags.seed = n
+    }
+    else if (a === "--saves") {
+      if (!argv[i + 1] || argv[i + 1].startsWith("--")) throw new Fail("--saves needs a JSON file")
+      flags.savesFile = argv[++i]
+    }
     else if (a === "--steps" || a === "--script") {
       if (argv[i + 1] === undefined) throw new Fail(`${a} needs a value`)
       flags[a.slice(2)] = argv[++i]
@@ -111,6 +136,11 @@ function parseArgs(argv) {
 }
 
 class Fail extends Error {}
+
+// A save's value as JSON when it reads as JSON (3, true, {"a":1}), else the text.
+function saveValue(text) {
+  try { return JSON.parse(text) } catch { return text }
+}
 
 // ── Credentials ───────────────────────────────────────────────────
 
@@ -545,25 +575,61 @@ async function playtest(flags, args) {
   const server = serverFor(flags, dir)
   const game = gameOf(dir)
   const body = { steps: scenario(flags), room: flags.rooms?.[0] || null, reset: !!flags.reset }
+  const saves = startSaves(flags)
+  if (saves) body.saves = saves
+  if (flags.seed !== undefined) body.seed = flags.seed
   const r = await api(server, "POST", `/games/${ref(game.id)}/playtest`, body)
+  if (r.status === 200 && (r.data.errors > 0 || r.data.ok === false)) process.exitCode = 1
   if (flags.json) return print(r.data)
   if (r.status !== 200) refuse(r, "playtest")
   printPlaytest(r.data)
-  if (r.data.errors > 0) process.exitCode = 1
+}
+
+// --saves file.json, then --save / --game-save on top.
+function startSaves(flags) {
+  let saves = null
+  if (flags.savesFile) {
+    if (!fs.existsSync(flags.savesFile)) throw new Fail(`no saves file ${flags.savesFile}`)
+    try { saves = JSON.parse(fs.readFileSync(flags.savesFile, "utf8")) } catch { throw new Fail(`${flags.savesFile} is not valid JSON`) }
+    if (!saves || typeof saves !== "object" || Array.isArray(saves)) throw new Fail(`${flags.savesFile}: {"player": {...}, "game": {...}}`)
+  }
+  for (const [scope, values] of Object.entries(flags.saveValues || {})) {
+    saves ||= {}
+    saves[scope] = { ...(saves[scope] || {}), ...values }
+  }
+  return saves
 }
 
 function printPlaytest(report) {
-  console.log(`Playtest of ${report.room}: ${report.seconds} s, ${report.errors} error${report.errors === 1 ? "" : "s"}.`)
+  const failed = report.failures?.length || 0
+  console.log(`Playtest of ${report.room}: ${report.seconds} s, ${report.errors} error${report.errors === 1 ? "" : "s"}${failed ? `, ${failed} expectation${failed === 1 ? "" : "s"} failed` : ""}.`)
   for (const step of report.steps) {
-    console.log(`\n${step.step}  (+${(step.at_ms / 1000).toFixed(2)} s)`)
+    const where = step.room ? `  ${step.room}${step.at ? ` ${step.at.join(",")}` : ""}` : ""
+    console.log(`\n${step.step}  (+${(step.at_ms / 1000).toFixed(2)} s)${where}`)
     const floors = step.events.filter((e) => e.kind === "floor")
     for (const e of step.events) if (e.kind !== "floor") console.log(`  ${eventLine(e)}`)
     if (floors.length) console.log(`  floor: ${floors.length} tile${floors.length === 1 ? "" : "s"} painted`)
+    if (step.events.length === 0 && step.step !== "end") console.log("  (nothing happened)")
   }
   const saves = report.saves || {}
   if (Object.keys(saves.player || {}).length) console.log(`\nSaved for the player: ${JSON.stringify(saves.player)}`)
   if (Object.keys(saves.game || {}).length) console.log(`Saved for the game: ${JSON.stringify(saves.game)}`)
   if (report.limits?.length) console.log(`\nLimits hit: ${report.limits.join("; ")}`)
+  if (failed) {
+    console.log(`\nFailed:`)
+    for (const f of report.failures) console.log(`  expect ${f.expect}: ${f.got}`)
+  }
+}
+
+// A window in one or two lines: id, title, text, then what can be pressed.
+function windowLine(spec) {
+  const head = [spec.id ? `#${spec.id}` : null, spec.title ? JSON.stringify(spec.title) : null].filter(Boolean).join(" ")
+  const items = Array.isArray(spec.items) ? spec.items : []
+  const texts = [spec.text, ...items.filter((i) => i.kind === "text").map((i) => i.text)].filter(Boolean)
+  const text = texts.join(" / ").replace(/\s*\n\s*/g, " / ")
+  const actions = items.filter((i) => i.id && i.kind !== "text").map((i) => `${i.kind === "input" ? "input " : i.kind === "card" ? "card " : ""}${i.id}${i.label && i.label !== i.id ? ` "${i.label}"` : ""}`)
+  const lists = items.filter((i) => i.kind === "list").map((i) => (i.rows || []).map((r) => r.join(": ")).join(", "))
+  return [head, text ? `"${text.length > 120 ? text.slice(0, 117) + "..." : text}"` : null, lists.length ? `list ${lists.join("; ")}` : null, actions.length ? `[${actions.join(", ")}]` : null].filter(Boolean).join(" ")
 }
 
 function eventLine(e) {
@@ -573,7 +639,8 @@ function eventLine(e) {
     case "diagnostic": return `${e.level.toUpperCase()} ${where}${e.text}`
     case "log": return `log ${where}${e.text}`
     case "entered": return `→ entered ${e.room}`
-    case "window": return e.spec ? `window ${where}${e.spec.id ? `#${e.spec.id} ` : ""}${JSON.stringify(e.spec).slice(0, 160)}` : `window ${where}closed`
+    case "window": return e.spec ? `window ${where}${windowLine(e.spec)}` : `window ${where}closed`
+    case "expect": return e.ok ? `ok: expect ${e.text}` : `FAILED: expect ${e.text} (${e.got})`
     case "set_state": return `set_state ${where}${thing ?? ""} → ${e.state}`
     case "move": return `move ${where}${thing} → ${e.tile.join(",")}${e.glide_ms ? ` over ${e.glide_ms} ms` : ""}`
     case "spawn": return `spawn ${where}${thing} at ${e.tile.join(",")}`
@@ -656,8 +723,9 @@ async function entrance(flags, args) {
 }
 
 async function stock(flags, args) {
-  const sub = ["add", "take"].includes(args[0]) ? args.shift() : "list"
+  const sub = ["add", "take", "use"].includes(args[0]) ? args.shift() : "list"
   const what = sub === "list" ? null : args.shift()
+  const version = sub === "use" ? args.shift() : null
   const dir = path.resolve(args[0] || ".")
   const server = serverFor(flags, dir)
   const game = gameOf(dir)
@@ -666,14 +734,26 @@ async function stock(flags, args) {
     if (r.status !== 200) refuse(r, "stock")
     if (flags.json) return print(r.data)
     if (r.data.stock.length === 0) return console.log("The game holds nothing yet. eggox stock add <mint> puts one in from the bag.")
-    for (const s of r.data.stock) console.log(`${s.thing}  (${s.instances} standing${s.rooms.length ? ": " + s.rooms.map((x) => `${x.count} in ${x.name}`).join(", ") : ""}${s.entrances?.length ? "; entrance for " + s.entrances.map(x => x.name).join(", ") : ""})`)
+    for (const s of r.data.stock) {
+      const versions = s.versions?.length > 1 ? `, v${s.version} of ${s.versions.slice().sort((a, b) => a - b).join("/")}` : ""
+      console.log(`${s.thing}  (${s.instances} standing${s.rooms.length ? ": " + s.rooms.map((x) => `${x.count} in ${x.name}`).join(", ") : ""}${versions}${s.entrances?.length ? "; entrance for " + s.entrances.map(x => x.name).join(", ") : ""})`)
+    }
     return
   }
-  if (!what) throw new Fail(`which one? eggox stock ${sub} <name or id>`)
-  const r = sub === "add" ? await api(server, "POST", `/games/${ref(game.id)}/stock`, { item: what }) : await api(server, "DELETE", `/games/${ref(game.id)}/stock/${what}`)
+  if (!what) throw new Fail(`which one? eggox stock ${sub} <name or id>${sub === "use" ? " <version|latest>" : ""}`)
+  let r
+  if (sub === "add") r = await api(server, "POST", `/games/${ref(game.id)}/stock`, { item: what })
+  else if (sub === "take") r = await api(server, "DELETE", `/games/${ref(game.id)}/stock/${encodeURIComponent(what)}`)
+  else {
+    const v = version === "latest" ? "latest" : Number(version)
+    if (v !== "latest" && !Number.isInteger(v)) throw new Fail("usage: eggox stock use <thing> <version|latest> [dir]")
+    r = await api(server, "POST", `/games/${ref(game.id)}/stock/${encodeURIComponent(what)}/version`, { version: v })
+  }
   if (flags.json) return print(r.data)
-  if (r.status !== 200) throw new Fail(`stock ${sub} refused: ${r.data.error || r.status}`)
-  console.log(sub === "add" ? `In the game's stock now. Name it in a room's things as ${JSON.stringify(slug(what))} (eggox stock lists the exact name).` : "Back in your bag.")
+  if (r.status !== 200) refuse(r, `stock ${sub}`)
+  if (sub === "add") console.log(`In the game's stock now. Name it in a room's things as ${JSON.stringify(slug(what))} (eggox stock lists the exact name).`)
+  else if (sub === "take") console.log("Back in your bag.")
+  else console.log(`${r.data.thing} shows v${r.data.version} now, with the ${r.data.instances} standing.`)
 }
 
 async function docs(flags, args) {
@@ -1194,12 +1274,13 @@ const TOOLS = [
   ...BLUEPRINT_TOOLS,
   { name: "eggox_games", description: "The games the logged-in creator owns: id, name, rooms, published or not.", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "eggox_pull", description: "Pull a game (by name or id) as files into a folder. Returns the folder and the file list.", inputSchema: { type: "object", properties: { game: { type: "string" }, dir: { type: "string", description: "folder to write into (default: the game's name)" } }, required: ["game"], additionalProperties: false } },
-  { name: "eggox_playtest", description: "Play the pushed draft headless on the server and return what its scripts did: per step (enter, then click/key/ui/walk/wait/close/leave) every effect (window, set_state, floor, move, save, send, log...) and every handler error, plus the saves and any limit hit. Push first, or set push. Steps: a string like 'click Kettle; key space; ui brew 3; wait 2' or a JSON list like [{\"click\":\"Kettle\"},{\"key\":\"space\"}]. Waits are real time, 60 s at most.", inputSchema: { type: "object", properties: { dir: { type: "string" }, steps: { description: "the scenario", oneOf: [{ type: "string" }, { type: "array", items: { type: "object" } }] }, room: { type: "string", description: "start in this room (default the root)" }, reset: { type: "boolean", description: "forget playtest saves first" }, push: { type: "boolean", description: "push the folder first" } }, additionalProperties: false } },
+  { name: "eggox_playtest", description: "Play the pushed draft headless on the server and return what its scripts did: per step (enter, then click/key/ui/walk/wait/close/leave) every effect (window, set_state, floor, move, save, send, log...) and every handler error, plus the saves and any limit hit. Push first, or set push. Steps: a string like 'click Kettle; key space; ui brew 3; wait 2; expect save brews = 1' or a JSON list like [{\"click\":\"Kettle\"},{\"key\":\"space\"},{\"expect\":\"window shop\"}]. A walk, click or key waits until the player stands still; each step reports the room and tile. expect checks: save <k> = <json>, save <k> unset, game_save <k> = <json>, window <id>, no window, state <thing or x,y> = <state>, at <x,y>, room <name>, log <text>, no errors; failures are listed in failures and ok is false. Saves persist between runs until reset. Waits are real time, 60 s at most.", inputSchema: { type: "object", properties: { dir: { type: "string" }, steps: { description: "the scenario", oneOf: [{ type: "string" }, { type: "array", items: { type: "object" } }] }, room: { type: "string", description: "start in this room (default the root)" }, reset: { type: "boolean", description: "forget playtest saves first" }, saves: { type: "object", description: "saves put in before the run: {player: {key: value}, game: {key: value}}", properties: { player: { type: "object" }, game: { type: "object" } }, additionalProperties: false }, seed: { type: "integer", description: "seed math.random so runs repeat" }, push: { type: "boolean", description: "push the folder first" } }, additionalProperties: false } },
   { name: "eggox_logs", description: "The last playtest of the game (the human's in the browser, or a headless one): logs, handler errors, limits hit, with times and rooms.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_check", description: "Would the project in a folder work? Returns what would change, or errors as file:line: text.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_push", description: "Make the game match the project in a folder (its draft; the human plays it in Eggox). Refused if the game changed since the pull unless force.", inputSchema: { type: "object", properties: { dir: { type: "string" }, force: { type: "boolean" } }, additionalProperties: false } },
   { name: "eggox_bag", description: "The mints in the creator's bag (things a game can hold).", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
   { name: "eggox_stock", description: "The things a game holds, with how many stand where.", inputSchema: { type: "object", properties: { dir: { type: "string" } }, additionalProperties: false } },
+  { name: "eggox_stock_use", description: "Show another published version of a thing in the game's stock: the thing and every instance standing switch together. Free; only versions the author published.", inputSchema: { type: "object", properties: { item: { type: "string", description: "the thing's name or id, as eggox_stock lists it" }, version: { description: "a version number, or \"latest\"", oneOf: [{ type: "integer" }, { type: "string", enum: ["latest"] }] }, dir: { type: "string" } }, required: ["item", "version"], additionalProperties: false } },
   { name: "eggox_stock_add", description: "Put a mint from the bag into the game's stock, so rooms can place it by name.", inputSchema: { type: "object", properties: { item: { type: "string", description: "the mint's name or id" }, dir: { type: "string" } }, required: ["item"], additionalProperties: false } },
   { name: "eggox_entrance", description: "Read an experience entrance, use a mint from its game's stock, or reset to the floor star. Changes apply immediately outside; they do not publish the game. Custom art keeps its shape and walking rules.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get", "set", "reset"] }, item: { type: "string", description: "stock mint name or id; required for set" }, dir: { type: "string" } }, additionalProperties: false } },
   { name: "eggox_docs", description: "The reference as markdown: 'api' (the scripting API: events, verbs, bricks) or 'project' (the file format and the CLI), or 'blueprints' (complete voxel authoring and minting contract). Read both before writing a game.", inputSchema: { type: "object", properties: { page: { type: "string", enum: ["api", "project", "blueprints"] } }, required: ["page"], additionalProperties: false } },
@@ -1262,11 +1343,16 @@ async function mcp(flags) {
               case "eggox_pull": return pull(f, [a.game, a.dir].filter(Boolean))
               case "eggox_check": return check(f, [a.dir || "."])
               case "eggox_push": return push(f, [a.dir || "."])
-              case "eggox_playtest": return playtest({ ...f, json: true, steps: a.steps, rooms: a.room ? [a.room] : undefined, reset: !!a.reset, push: !!a.push }, [a.dir || "."]).then(() => undefined)
+              case "eggox_playtest": {
+                // A failed run is in the answer; it does not end the server's exit code.
+                const code = process.exitCode
+                return playtest({ ...f, json: true, steps: a.steps, rooms: a.room ? [a.room] : undefined, reset: !!a.reset, push: !!a.push, saveValues: a.saves, seed: a.seed }, [a.dir || "."]).then(() => { process.exitCode = code })
+              }
               case "eggox_logs": return logs({ ...f, json: true }, [a.dir || "."])
               case "eggox_bag": return bag(f)
               case "eggox_stock": return stock(f, [a.dir || "."])
               case "eggox_stock_add": return stock(f, ["add", a.item, a.dir || "."])
+              case "eggox_stock_use": return stock(f, ["use", a.item, String(a.version), a.dir || "."])
               case "eggox_entrance": {
                 const action = a.action || "get"
                 if (!["get", "set", "reset"].includes(action)) throw new Fail("entrance action must be get, set or reset")

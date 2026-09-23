@@ -121,12 +121,12 @@ The Studio inside Eggox and these files are two views of one game: a push shows 
 | `eggox pull <game> [dir]` | the game as files, by name or id |
 | `eggox check [dir]` | would these files work? compile errors by line, playability warnings |
 | `eggox push [dir] [--force]` | make the game match the files, whole or not at all |
-| `eggox playtest [dir] --steps "..."` | play the pushed draft headless; every effect and handler error, step by step |
+| `eggox playtest [dir] --steps "..."` | play the pushed draft headless; every effect, handler error and failed `expect`, step by step |
 | `eggox logs [dir]` | the last playtest's logs and errors, from the browser or headless |
 | `eggox publish [dir]` | ship the draft: the door leads here from now on |
 | `eggox bag` | the mints in your bag |
 | `eggox entrance [set <mint>\|reset] [dir]` | use stock artwork for the entrance or restore its floor star |
-| `eggox stock [add\|take] [..]` | the things the game holds; put one in, take one back |
+| `eggox stock [add\|take\|use] [..]` | the things the game holds; put one in, take one back, pick a published version |
 | `eggox docs [api\|project]` | the reference as markdown |
 | `eggox mcp` | serve all of this to an AI agent over MCP |
 | `eggox update` | fetch the newest eggox from the server |
