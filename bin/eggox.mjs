@@ -418,7 +418,11 @@ async function games(flags) {
   if (r.status !== 200) refuse(r, "games")
   if (flags.json) return print(r.data)
   if (r.data.games.length === 0) return console.log("You own no games yet. Buy an experience in the Shop and place its door.")
-  for (const g of r.data.games) console.log(`${g.name}\n  ${g.id}  ${g.rooms} room${g.rooms === 1 ? "" : "s"}  api v${g.api}  ${g.published ? "published" : "not published yet"}`)
+  for (const g of r.data.games) {
+    console.log(`${g.name}\n  ${g.id}  ${g.rooms} room${g.rooms === 1 ? "" : "s"}  api v${g.api}  ${g.published ? "published" : "not published yet"}`)
+    // What live copies last measured against their players' budget (docs/22).
+    if (g.live) console.log(`  live: ${g.live.tier}, ${g.live.budget_used}% of the work budget${g.live.speed < 1 ? `, running at ${Math.round(g.live.speed * 100)}%` : ""}${g.live.red ? "; red in the last day, so left out of game lists" : ""}`)
+  }
 }
 
 async function resolveGame(server, ref) {
