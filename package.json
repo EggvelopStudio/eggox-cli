@@ -1,6 +1,6 @@
 {
   "name": "@eggox/cli",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Your Eggox games and voxel blueprints as files: create, iterate, mint, and an MCP server for AI agents.",
   "author": "Eggvelop ApS",
   "license": "MIT",
