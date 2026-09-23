@@ -616,10 +616,25 @@ function printPlaytest(report) {
   if (Object.keys(saves.player || {}).length) console.log(`\nSaved for the player: ${JSON.stringify(saves.player)}`)
   if (Object.keys(saves.game || {}).length) console.log(`Saved for the game: ${JSON.stringify(saves.game)}`)
   if (report.limits?.length) console.log(`\nLimits hit: ${report.limits.join("; ")}`)
+  printCosts(report.cost)
   if (failed) {
     console.log(`\nFailed:`)
     for (const f of report.failures) console.log(`  expect ${f.expect}: ${f.got}`)
   }
+}
+
+// What each room cost against the budget its players bring (docs/22).
+function printCosts(costs) {
+  if (!costs?.length) return
+  console.log("")
+  for (const c of costs) console.log(costLine(c))
+}
+
+function costLine(c) {
+  const slow = c.speed < 1 ? `, would run at ${Math.round(c.speed * 100)}%` : ""
+  const heavy = (c.heaviest || []).filter((h) => h.share > 0).slice(0, 3)
+    .map((h) => `${h.source} ${h.event} ${h.share}%${h.count > 1 ? ` (${h.count}x)` : ""}`).join(", ")
+  return `Cost [${c.room}]: ${c.tier}, ${c.budget_used}% of the work budget and ${c.bytes_used}% of the bytes budget per player${slow}.${heavy ? ` Most: ${heavy}.` : ""}`
 }
 
 // A window in one or two lines: id, title, text, then what can be pressed.
@@ -673,6 +688,7 @@ async function logs(flags, args) {
     const t = new Date(e.at).toISOString().slice(11, 19)
     console.log(`${t} ${e.level === "log" ? "log  " : e.level.toUpperCase()} [${e.room}] ${e.message}`)
   }
+  printCosts(run.costs)
 }
 
 async function publish(flags, args) {

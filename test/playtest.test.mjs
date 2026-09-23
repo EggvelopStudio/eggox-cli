@@ -25,6 +25,7 @@ const report = {
   ok: false, room: 'Hub', seconds: 1.2, errors: 1, limits: [],
   failures: [{ expect: 'save visits = 2', got: 'visits is 1' }],
   saves: { player: { visits: 1 }, game: {} },
+  cost: [{ room: 'Hub', tier: 'yellow', speed: 0.62, budget_used: 161, bytes_used: 12, heaviest: [{ source: 'room', event: 'timer', count: 40, share: 88 }, { source: 'Kettle', event: 'click', count: 1, share: 0 }] }],
   steps: [
     { step: 'enter Hub', at_ms: 90, events: [
       { kind: 'log', room: 'Hub', source: 'room', text: 'started' },
@@ -60,7 +61,7 @@ test('playtest prints the steps and errors, logs reads the last run, MCP has bot
       return res.end(JSON.stringify(report))
     }
     if (req.method === 'GET' && req.url === '/api/dev/games/tpi_k/logs') {
-      return res.end(JSON.stringify({ ok: true, run: { room: 'Hub', headless: false, started_at: 0, entries: [{ at: 1000, level: 'error', room: 'Hub', message: 'room: enter: error: nope' }] } }))
+      return res.end(JSON.stringify({ ok: true, run: { room: 'Hub', headless: false, started_at: 0, entries: [{ at: 1000, level: 'error', room: 'Hub', message: 'room: enter: error: nope' }], costs: [{ room: 'Hub', tier: 'green', speed: 1, budget_used: 3, bytes_used: 1, heaviest: [] }] } }))
     }
     res.statusCode = 404
     res.end('{}')
@@ -84,6 +85,7 @@ test('playtest prints the steps and errors, logs reads the last run, MCP has bot
   assert.match(r.stdout, /ERROR \[Hub\] room: key: error: boom/)
   assert.match(r.stdout, /→ entered Brew Room/)
   assert.match(r.stdout, /Saved for the player: \{"visits":1\}/)
+  assert.match(r.stdout, /Cost \[Hub\]: yellow, 161% of the work budget and 12% of the bytes budget per player, would run at 62%\. Most: room timer 88% \(40x\)\./)
 
   r = await run(['playtest', dir, '--script', path.join(dir, 'walk.txt')], env)
   assert.equal(bodies[1].steps, 'click Kettle\nkey space\n')
@@ -92,6 +94,7 @@ test('playtest prints the steps and errors, logs reads the last run, MCP has bot
   assert.equal(r.code, 0)
   assert.match(r.stdout, /Playtest of Hub/)
   assert.match(r.stdout, /ERROR \[Hub\] room: enter: error: nope/)
+  assert.match(r.stdout, /Cost \[Hub\]: green, 3% of the work budget/)
 
   const calls = [
     { jsonrpc: '2.0', id: 1, method: 'tools/list' },
