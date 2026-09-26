@@ -263,6 +263,15 @@ function readProject(dir) {
   return files
 }
 
+// A project path from the server, as a path inside `dir`, or null. The
+// names come over the wire, so "../../.bashrc" or "/etc/x" must never
+// turn a pull into a write outside the game's folder.
+function inside(dir, rel) {
+  const root = path.resolve(dir)
+  const abs = path.resolve(root, rel)
+  return typeof rel === "string" && !path.isAbsolute(rel) && abs.startsWith(root + path.sep) ? abs : null
+}
+
 function writeProject(dir, files) {
   // What was a project file and is not in the game any more goes.
   if (fs.existsSync(path.join(dir, "eggox.json"))) {
@@ -270,7 +279,11 @@ function writeProject(dir, files) {
     for (const sub of ["rooms", "things"]) pruneEmpty(path.join(dir, sub))
   }
   for (const [rel, text] of Object.entries(files)) {
-    const abs = path.join(dir, rel)
+    const abs = inside(dir, rel)
+    if (!abs) {
+      console.error(`skipped ${JSON.stringify(rel)}: not a path inside the project`)
+      continue
+    }
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, text)
   }
