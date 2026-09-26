@@ -823,7 +823,7 @@ export const BLUEPRINT_RULES = {
   voxels_per_tile: 32, max_side: 128, max_frames: 500, frame_tick_ms: 100,
   world_cycle_frames: 16, max_palette: 256, transparent_index: 0,
   max_layers: 12, max_layer_name: 24, max_source_bytes: 6_000_000,
-  max_decoded_bytes: 67_108_864, max_metadata_bytes: 200_000, max_http_bytes: 10_000_000,
+  max_decoded_bytes: 67_108_864, max_metadata_bytes: 200_000,
   offset: "x + y * size.x + z * size.x * size.y",
   axes: { x: "down-right", y: "down-left", z: "up" },
   frame: "Complete snapshot, never a delta. Supply voxels OR layers. Use sparse [x,y,z,paletteIndex] rows or dense voxels_b64 bytes; absent sparse cells are empty. Layers are bottom first; the last visible nonzero voxel wins.",
@@ -1058,7 +1058,6 @@ export function encodeBlueprint(doc) {
   if (withLayers) parts.push(Buffer.from("EGLY"), Buffer.from([1]), ...trailer)
   assertBlueprint(parts.reduce((n, p) => n + p.length, 0) <= BLUEPRINT_RULES.max_source_bytes, "frames", "compressed source exceeds 6000000 bytes")
   const payload = { ...Object.fromEntries(SOURCE_METADATA.map(k => [k, doc[k] ?? null])), voxel_source_b64: Buffer.concat(parts).toString("base64") }
-  assertBlueprint(Buffer.byteLength(JSON.stringify(payload)) + 1024 <= 10_000_000, "blueprint", "source and metadata exceed the 10 MB HTTP limit")
   return payload
 }
 
